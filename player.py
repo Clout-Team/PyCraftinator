@@ -23,10 +23,10 @@ def generate_chunk_block(k, c):
 
 
 class Player:
-    def __init__(self, worker, x, y, stance, z, yaw, pitch, just_spawned = 1, did_move = 1, did_pitchyaw = 1, running=1, doneupdatespeed = 1, onground = 1, active = 1):
+    def __init__(self, worker, x, y, grounded, z, yaw, pitch, just_spawned = 1, did_move = 1, did_pitchyaw = 1, running=1, doneupdatespeed = 1, onground = 1, active = 1):
         self.x = x
         self.y = y
-        self.stance = stance
+        self.grounded = grounded
         self.z = z
         self.yaw = yaw
         self.pitch = pitch
@@ -51,32 +51,44 @@ class Player:
         self.next_chunk_to_load = 1
         
         self.need_to_respawn = 0
+        
+        self.need_to_keep_alive = 0
+        self.alivecounter = 0
+
+        self.tickcounter = 0
 
     def tick(self):
+        self.tickcounter += 1
         self.tick_since_update = 0
         if self.need_to_respawn:
             self.x = 0
             self.y = 16*2
-            self.stance = 0
             self.z = 0
             self.send_pos(self.x, self.y, self.z)
             self.send_chunk()
             self.need_to_respawn = False
-        else:
-            self.send_keepalive()        
+        if self.need_to_keep_alive and self.tickcounter > 150:
+            self.send_keepalive()
+            self.tickcounter = 0
 
     def send_pos(self, x, y, z):
         self.x = x
         self.y = y
-        self.z = z
+        self.z = z 
         self.worker.send_data(b'\x2e', double(self.x), double(self.y), double(self.z), float(self.yaw), float(self.pitch), b'\x07', pack_varint(0))
         print("sending pos")  
 
     def send_chunk(self):
-        print("sending chunk")
-        data = generate_chunk_block(2, 0) + generate_chunk_block(0, 0) #grassblocks / air above
-        self.worker.send_data(b'\x20', struct.pack('i',0) , struct.pack('i',0), b'\x01', pack_varint(18), pack_varint(len(data)), data, pack_varint(0))
-        self.send_pos(0, 32, 0)
+        for i in range(0,4):
+            print("sending chunk")
+            data = generate_chunk_block(2, 0) + generate_chunk_block(0, 0) #grassblocks / air above
+            self.worker.send_data(b'\x20', struct.pack('>i',i) , struct.pack('>i',i), b'\x01', pack_varint(18), pack_varint(len(data)), data, pack_varint(0))
+            self.send_pos(0, 32, 0)
+        self.need_to_keep_alive = 1
 
     def send_keepalive(self):
-        print("sending keepalive")
+        self.alivecounter += 1
+        self.worker.send_data(b'\x1f', pack_varint(self.alivecounter))
+        #print("sending keepalive")
+        if self.alivecounter > 25:
+            self.alivecounter = 0

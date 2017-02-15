@@ -69,7 +69,13 @@ class Worker:
         if (self._cursor < self._packet_length + 1):
             return self._buffer[self._cursor - c:self._cursor]
         return b''
+
+    def read_double(self):
+        return struct.unpack('>d', self.read_byte(8))
     
+    def read_float(self):
+        return struct.unpack('>f', self.read_byte(4))
+   
     def read_varint(self): 
         data = 0
         for i in range(5):
@@ -85,6 +91,9 @@ class Worker:
     def read_string(self):
         len = self.read_varint()
         return self.read_byte(len)
+    
+    def read_bool(self):
+        return self.read_byte(1) == b'\x01'
 
     def recv(self):
         self._cursor = 0
@@ -110,66 +119,87 @@ class Worker:
         #print("port: %s" % struct.unpack('>H', port))
         
         packet_id = self.recv()
+        if len(self._buffer) > 0:
+            if DEBUG:
+                print("id: %s" % packet_id)
+                print("state: %s" % self._state)
+                print("buffer: %s" % self._buffer)
+                print("count: %s" % self._cursor)
+                print("length: %s" % self._packet_length)
+            
+            if self._state == 0:
+                if packet_id == 0x00:
+                    prot = self.read_varint()
+                    addr = self.read_string()
+                    port = self.read_byte(2)
+                    self._state = self.read_varint()
+                    if DEBUG:
+                        print("handshaking")
+                        print("str: %s" % addr.decode("utf-8"))
+                        print("port: %s" % port)
+                        print("Switched to state: %s" % self._state)
 
-        if DEBUG:
-            print("id: %s" % packet_id)
-            print("state: %s" % self._state)
-            print("buffer: %s" % self._buffer)
-            print("count: %s" % self._cursor)
-            print("length: %s" % self._packet_length)
-        
-        if self._state == 0:
-            if packet_id == 0x00:
-                prot = self.read_varint()
-                addr = self.read_string()
-                port = self.read_byte(2)
-                self._state = self.read_varint()
-                if DEBUG:
-                    print("handshaking")
-                    print("str: %s" % addr.decode("utf-8"))
-                    print("port: %s" % port)
-                    print("Switched to state: %s" % self._state)
-        elif self._state == 1:
-            if packet_id == 0x00: 
-                self.send_data(b'\x00', 
-                    """{
-                     
-                    "version": {
-                         "name": "1.11.2",
-                         "protocol": 316
-                     },
-                    "players": {
-                     "max": """ + str(MAX_PLAYERS) + """,
-                     "online": 0
-                    },
-                    "description": {   
-                      "text": "Hello world"
-                     }
-                    } """.replace("\n", ""))
-                if DEBUG:
-                    print("sending status")
-            elif packet_id == 0x01:
-                payload = self.read_byte(8)
-                self.send_data(b'\x01', payload)
-                if DEBUG:
-                    print("pinging")
-        elif self._state == 2:
-            if packet_id == 0x00:
-                self.username = self.read_string().decode("utf-8")
-                print("%s is logging in..." % self.username)
-                self.login()
-        elif self._state == 3:
-            print("state 3")
-            if packet_id == 0x04:
-                print("client settings received")
-            elif packet_id == 0x09:
-                channel = self.read_string().decode("utf-8")
-                print("p-channel: %s" % channel)
-            elif packet_id == 0x0b:
-                id = self.read_varint()
-                self.send_data(b'\x0b', pack_varint(id))
-                print("keeping alive") 
-        #input("press a key") 
+            elif self._state == 1:
+                if packet_id == 0x00: 
+                    self.send_data(b'\x00', 
+                        """{
+                         
+                        "version": {
+                             "name": "1.11.2",
+                             "protocol": 316
+                         },
+                        "players": {
+                         "max": """ + str(MAX_PLAYERS) + """,
+                         "online": 0
+                        },
+                        "description": {   
+                          "text": "Hello world"
+                         }
+                        } """.replace("\n", ""))
+                    if DEBUG:
+                        print("sending status")
+                elif packet_id == 0x01:
+                    payload = self.read_byte(8)
+                    self.send_data(b'\x01', payload)
+                    if DEBUG:
+                        print("pinging")
+            elif self._state == 2:
+                if packet_id == 0x00:
+                    self.username = self.read_string().decode("utf-8")
+                    print("%s is logging in..." % self.username)
+                    self.login()
+            elif self._state == 3:
+                print("state 3")
+                if packet_id == 0x04:
+                    print("client settings received")
+                elif packet_id == 0x09:
+                    channel = self.read_string().decode("utf-8")
+                    print("p-channel: %s" % channel)
+
+                #player pos x y z onground
+                elif packet_id == 0x0c: 
+                    self.player.x = self.read_double()
+                    self.player.y = self.read_double()
+                    self.player.z = self.read_double()
+                    self.player.grounded = self.read_bool()
+                    print("player " + self.player.username + " moved: %s; %s; %s; grounded: %s" %( self.player.x, self.player.y, self.player.z, self.player.grounded)) 
+                           
+                #player pos x y z yaw pitch onground
+                elif packet_id == 0x0d: 
+                    self.player.x = self.read_double()
+                    self.player.y = self.read_double()
+                    self.player.z = self.read_double()
+                    self.player.yaw = self.read_float()
+                    self.player.pitch = self.read_float()
+                    self.player.grounded = self.read_bool()
+                    print("player " + self.player.username + " moved: %s; %s; %s; pitch: %s; yaw: %s;grounded: %s" %( self.player.x, self.player.y, self.player.z, self.player.yaw, self.player.pitch, self.player.grounded)) 
+                           
+                elif packet_id == 0x0e: 
+                    self.player.yaw = self.read_float()
+                    self.player.pitch = self.read_float()
+                    self.player.grounded = self.read_bool()
+                    print("player " + self.player.username + " yaw: %s; pitch: %s;grounded: %s" %( self.player.yaw, self.player.pitch, self.player.grounded)) 
+           #input("press a key") 
     
     def login(self):
         self.send_data(b'\x02', "4a1d6813-c6aa-40b2-ab97-d3d5aa4561d0", self.username) #login success
@@ -177,9 +207,9 @@ class Worker:
         print("login")
         #EID, gamemode, dimension, diff, max players, level type (default), debug info
         self.send_data(b'\x23', struct.pack("i",1337), b'\x01', struct.pack("i",0), b'\x01', b'\x00', "default", b'\x00') #spawn player
-        player = Player(self, 0, 32, 0, 0, 0, 0)
-        player.need_to_respawn = True        
-        players.append(player)
+        self.player = Player(self, 0, 32, 0, 0, 0, 0)
+        self.player.need_to_respawn = True        
+        players.append(self.player)
 
     def start(self):
         while self._break == 0:
