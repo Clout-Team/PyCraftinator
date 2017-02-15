@@ -177,7 +177,7 @@ class Worker:
         print("login")
         #EID, gamemode, dimension, diff, max players, level type (default), debug info
         self.send_data(b'\x23', struct.pack("i",1337), b'\x01', struct.pack("i",0), b'\x01', b'\x00', "default", b'\x00') #spawn player
-        player = Player(self, 0, 0, 0, 0, 0, 0)
+        player = Player(self, 0, 32, 0, 0, 0, 0)
         player.need_to_respawn = True        
         players.append(player)
 

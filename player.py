@@ -1,20 +1,26 @@
 from utils import *
 
+def generate_chunk_block(k, c):
+    data = ''          
+    d = "" 
+    for x in range(0, 4096):
+        d += bin(k)[2:].zfill(9) + bin(c)[2:].zfill(4)
+    d = [int(s) for s in d]
+    nd = []
 
-data = ''          
-d = "" 
-for x in range(0, 4096):
-    d += bin(2)[2:].zfill(9) + bin(0 & 0x0F)[2:].zfill(4)
-d = [int(s) for s in d]
-nd = []
-for i in range(0, len(d), 64):
-    out = 0
-    for bit in reversed(d[i:i+64]):
-        out = (out << 1) | bit
-    nd.append(struct.pack("<Q", out))
+    #print(d)
+    for i in range(0, len(d), 64):
+        out = 0
+        for bit in d[i:i+64]:
+            out = (out << 1) | bit 
+        if i == 0:
+            print(d[i:i+64])
+            print(bin(out))
+        nd.append(struct.pack(">q", (out % 2**64) - 2**64 if (out % 2**64)>=2**(63) else (out % 2**64)))
+    #print(nd)
+    light = [b'\xff' for i in range(0, 2048)]
+    return b'\x0d' + pack_varint(0) + pack_varint(len(nd)) + b''.join(nd[::-1]) +  b''.join(light)
 
-light = [b'\xee' for i in range(0, 2048)]
-data = b'\x0d' + pack_varint(0) + pack_varint(len(nd)) + b''.join(nd) + b''.join(light) + b''.join(light)
 
 class Player:
     def __init__(self, worker, x, y, stance, z, yaw, pitch, just_spawned = 1, did_move = 1, did_pitchyaw = 1, running=1, doneupdatespeed = 1, onground = 1, active = 1):
@@ -50,16 +56,27 @@ class Player:
         self.tick_since_update = 0
         if self.need_to_respawn:
             self.x = 0
-            self.y = 17
+            self.y = 16*2
             self.stance = 0
             self.z = 0
-            self.send_pos()
+            self.send_pos(self.x, self.y, self.z)
+            self.send_chunk()
             self.need_to_respawn = False
-        self.send_chunk()
-    def send_pos(self):
-        self.worker.send_data(b'\x2e', double(self.x), double(self.y), double(self.z), float(self.yaw), float(self.pitch), b'\x00', pack_varint(0))
+        else:
+            self.send_keepalive()        
+
+    def send_pos(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.worker.send_data(b'\x2e', double(self.x), double(self.y), double(self.z), float(self.yaw), float(self.pitch), b'\x07', pack_varint(0))
         print("sending pos")  
-        self.send_chunk()
 
     def send_chunk(self):
-        self.worker.send_data(b'\x20', struct.pack('i',0) , struct.pack('i',0), b'\x01', b'\x01', pack_varint(len(data)), data, pack_varint(0))
+        print("sending chunk")
+        data = generate_chunk_block(2, 0) + generate_chunk_block(0, 0) #grassblocks / air above
+        self.worker.send_data(b'\x20', struct.pack('i',0) , struct.pack('i',0), b'\x01', pack_varint(18), pack_varint(len(data)), data, pack_varint(0))
+        self.send_pos(0, 32, 0)
+
+    def send_keepalive(self):
+        print("sending keepalive")
