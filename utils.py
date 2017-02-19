@@ -85,5 +85,11 @@ def read_fully(connection, string=False, extra_varint=False):
 def double(i):
     return struct.pack("d", i)
 
-def float(i):
-    return struct.pack("f", i)
+def gfloat(i):
+    return struct.pack("f", float(i))
+
+def deltapos(i):
+    return struct.pack('h', int(i * 32 * 128))
+            
+def angle(i):
+    return struct.pack('B', int((i/(2*3.14))*255))

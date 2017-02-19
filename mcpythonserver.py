@@ -5,16 +5,21 @@ import json
 import time
 import threading
 
-DEBUG = True
+DEBUG = False
 SHOW_TICKS = True
 MAX_PLAYERS = 10
 
 #custom modules
 import player
+import world
+
 from player import Player
+from world import *
 
 from utils import *
 players = []
+
+import image
 
 class Server:
     def __init__(self, host='localhost', port=25565, timeout=5, state = 0):
@@ -22,8 +27,9 @@ class Server:
         self._port = port
         self._timeout = timeout
         self._threads = []
+        self.world = None
+        self.idcounter = 1500
 
-    
     def host(self):
         with socket.socket(socket.SO_REUSEADDR) as s:
             s.bind((self._host, self._port))
@@ -41,17 +47,20 @@ class Server:
             s.close()
         print("Server stopped!")
     
-    def tick(self):
+    def tick(self):         
         while 1:
             time.sleep(0.05)
             for player in players:
-                player.tick()
+                player.tick(image.generate_heart_chunk())
                 #if SHOW_TICKS:
                 #    print(player.username)
+    
+    def get_chunk(self, x, y, z):
+        return self.world.get_chunk(x, y, z)
 
 class Worker:
     def __init__(self, server, conn, id, state=0):        
-        self._server = server
+        self.server = server
         self._state = state
         self._id = id
         self._buffer = b''
@@ -169,7 +178,8 @@ class Worker:
                     print("%s is logging in..." % self.username)
                     self.login()
             elif self._state == 3:
-                print("state 3")
+                if DEBUG:
+                    print("state 3")
                 if packet_id == 0x04:
                     print("client settings received")
                 elif packet_id == 0x09:
@@ -178,36 +188,42 @@ class Worker:
 
                 #player pos x y z onground
                 elif packet_id == 0x0c: 
-                    self.player.x = self.read_double()
-                    self.player.y = self.read_double()
-                    self.player.z = self.read_double()
+                    self.player.x = self.read_double()[0]
+                    self.player.y = self.read_double()[0]
+                    self.player.z = self.read_double()[0]
                     self.player.grounded = self.read_bool()
-                    print("player " + self.player.username + " moved: %s; %s; %s; grounded: %s" %( self.player.x, self.player.y, self.player.z, self.player.grounded)) 
+                    if DEBUG:
+                        print("player " + self.player.username + " moved: %s; %s; %s; grounded: %s" %( self.player.x, self.player.y, self.player.z, self.player.grounded)) 
                            
                 #player pos x y z yaw pitch onground
                 elif packet_id == 0x0d: 
-                    self.player.x = self.read_double()
-                    self.player.y = self.read_double()
-                    self.player.z = self.read_double()
-                    self.player.yaw = self.read_float()
-                    self.player.pitch = self.read_float()
+                    self.player.x = self.read_double()[0]
+                    self.player.y = self.read_double()[0]
+                    self.player.z = self.read_double()[0]
+                    self.player.yaw = self.read_float()[0]
+                    self.player.pitch = self.read_float()[0]
                     self.player.grounded = self.read_bool()
-                    print("player " + self.player.username + " moved: %s; %s; %s; pitch: %s; yaw: %s;grounded: %s" %( self.player.x, self.player.y, self.player.z, self.player.yaw, self.player.pitch, self.player.grounded)) 
+                    if DEBUG:
+                        print("player " + self.player.username + " moved: %s; %s; %s; pitch: %s; yaw: %s;grounded: %s" %( self.player.x, self.player.y, self.player.z, self.player.yaw, self.player.pitch, self.player.grounded)) 
                            
                 elif packet_id == 0x0e: 
-                    self.player.yaw = self.read_float()
-                    self.player.pitch = self.read_float()
+                    self.player.yaw = self.read_float()[0]
+                    self.player.pitch = self.read_float()[0]
                     self.player.grounded = self.read_bool()
-                    print("player " + self.player.username + " yaw: %s; pitch: %s;grounded: %s" %( self.player.yaw, self.player.pitch, self.player.grounded)) 
+                    if DEBUG:
+                        print("player " + self.player.username + " yaw: %s; pitch: %s;grounded: %s" %( self.player.yaw, self.player.pitch, self.player.grounded)) 
            #input("press a key") 
     
-    def login(self):
+    def login(self): 
+        pid = self.server.idcounter
+        self.server.idcounter += 1
+
         self.send_data(b'\x02', "4a1d6813-c6aa-40b2-ab97-d3d5aa4561d0", self.username) #login success
         self._state = 3
         print("login")
-        #EID, gamemode, dimension, diff, max players, level type (default), debug info
-        self.send_data(b'\x23', struct.pack("i",1337), b'\x01', struct.pack("i",0), b'\x01', b'\x00', "default", b'\x00') #spawn player
-        self.player = Player(self, 0, 32, 0, 0, 0, 0)
+        #EID, gamemode, dimension, diff, max players, level type (default), debug info 
+        
+        self.player = Player(id, self, 0, 32, 0, 0, 0.0, 0.0)
         self.player.need_to_respawn = True        
         players.append(self.player)
 
@@ -223,7 +239,6 @@ class Worker:
                 print("A general error occured")
                 print("Unexpected error:", sys.exc_info()[0])
                 raise
-                
 
-server = Server()
+server = Server("")
 server.host()

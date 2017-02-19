@@ -1,35 +1,20 @@
 from utils import *
+from world import *
 
-def generate_chunk_block(k, c):
-    data = ''          
-    d = "" 
-    for x in range(0, 4096):
-        d += bin(k)[2:].zfill(9) + bin(c)[2:].zfill(4)
-    d = [int(s) for s in d]
-    nd = []
+import math
 
-    #print(d)
-    for i in range(0, len(d), 64):
-        out = 0
-        for bit in d[i:i+64]:
-            out = (out << 1) | bit 
-        if i == 0:
-            print(d[i:i+64])
-            print(bin(out))
-        nd.append(struct.pack(">q", (out % 2**64) - 2**64 if (out % 2**64)>=2**(63) else (out % 2**64)))
-    #print(nd)
-    light = [b'\xff' for i in range(0, 2048)]
-    return b'\x0d' + pack_varint(0) + pack_varint(len(nd)) + b''.join(nd[::-1]) +  b''.join(light)
-
+RENDERDISTANCE = 10
 
 class Player:
-    def __init__(self, worker, x, y, grounded, z, yaw, pitch, just_spawned = 1, did_move = 1, did_pitchyaw = 1, running=1, doneupdatespeed = 1, onground = 1, active = 1):
+    def __init__(self, id, worker, x, y, grounded, z, yaw, pitch, just_spawned = 1, did_move = 1, did_pitchyaw = 1, running=1, doneupdatespeed = 1, onground = 1, active = 1):
+        self.id = id
         self.x = x
         self.y = y
         self.grounded = grounded
         self.z = z
         self.yaw = yaw
         self.pitch = pitch
+        self.chunk = []
 
         self.just_spawned = just_spawned
         self.did_move = did_move
@@ -57,34 +42,75 @@ class Player:
 
         self.tickcounter = 0
 
-    def tick(self):
+        self.loaded_pillars = []
+
+        self.oldx = self.x
+        self.oldy = self.y
+        self.oldz = self.z
+
+    def tick(self, chunk):
+        self.chunk = chunk
         self.tickcounter += 1
         self.tick_since_update = 0
+
+
         if self.need_to_respawn:
+            print("sending spawn packet")
+            self.worker.send_data(b'\x23', struct.pack("i",1337), b'\x01', struct.pack("i",0), b'\x01', b'\x08', "default", b'\x00') #spawn player
             self.x = 0
             self.y = 16*2
             self.z = 0
             self.send_pos(self.x, self.y, self.z)
-            self.send_chunk()
             self.need_to_respawn = False
-        if self.need_to_keep_alive and self.tickcounter > 150:
+
+        if self.need_to_keep_alive and self.tickcounter > 25:
             self.send_keepalive()
             self.tickcounter = 0
+
+        
+        self.check_chunks()
+        #self.handle_moves()
+        self.oldx = self.x
+        self.oldy = self.y
+        self.oldz = self.z
 
     def send_pos(self, x, y, z):
         self.x = x
         self.y = y
         self.z = z 
-        self.worker.send_data(b'\x2e', double(self.x), double(self.y), double(self.z), float(self.yaw), float(self.pitch), b'\x07', pack_varint(0))
+        self.worker.send_data(b'\x2e', double(self.x), double(self.y), double(self.z), gfloat(self.yaw), gfloat(self.pitch), b'\x07', pack_varint(0))
         print("sending pos")  
 
-    def send_chunk(self):
-        for i in range(0,4):
-            print("sending chunk")
-            data = generate_chunk_block(2, 0) + generate_chunk_block(0, 0) #grassblocks / air above
-            self.worker.send_data(b'\x20', struct.pack('>i',i) , struct.pack('>i',i), b'\x01', pack_varint(18), pack_varint(len(data)), data, pack_varint(0))
-            self.send_pos(0, 32, 0)
-        self.need_to_keep_alive = 1
+    def handle_moves(self):
+        dx = self.x - self.oldx
+        dy = self.y - self.oldy
+        dz = self.z - self.oldz
+
+        if abs(dx) > 4 or abs(dy) > 4 or abs(dz) > 8:
+            self.worker.send_data(b'\x49', pack_varint(self.id), double(self.x), double(self.y), double(self.z), gfloat(self.yaw), gfloat(self.pitch), b'\x01' if self.grounded else b'\x00')    
+        else:
+            self.worker.send_data(b'\x26', pack_varint(self.id), deltapos(dx), deltapos(dy), deltapos(dz), gfloat(self.yaw), gfloat(self.pitch), b'\x01' if self.grounded else b'\x00')
+        
+
+    def send_pillar(self, x, z):
+        for dx in range(RENDERDISTANCE):
+            for dz in range(RENDERDISTANCE):
+                if not [x+dx, z+dz] in self.loaded_pillars:
+                    self.loaded_pillars.append([x+dx, z+dz])
+                    print("sending pillar %s %s" %(x+dx, z+dz))
+                    data = b''
+                    data += generate_bedrock_chunk() + generate_chunk(self.chunk) 
+                    self.worker.send_data(b'\x20', struct.pack('>i',-2 + x + dx) , struct.pack('>i',-2 + z + dz), b'\x01', pack_varint(3), pack_varint(len(data)), data,  pack_varint(0))
+                    self.need_to_keep_alive = 1
+                    
+
+    def check_chunks(self):
+        x = math.floor(self.x/16)
+        z = math.floor(self.z/16)
+        if not [x, z] in self.loaded_pillars:
+            self.send_pillar(x, z)
+
+    
 
     def send_keepalive(self):
         self.alivecounter += 1
@@ -92,3 +118,4 @@ class Player:
         #print("sending keepalive")
         if self.alivecounter > 25:
             self.alivecounter = 0
+
