@@ -1,6 +1,8 @@
 import struct
+import random
+from noise import pnoise2
 
-
+mapgen_scale = 0.08
 
 def unpack_varint(sock):
         data = 0
@@ -86,10 +88,16 @@ def double(i):
     return struct.pack("d", i)
 
 def gfloat(i):
-    return struct.pack("f", float(i))
+    return struct.pack(">f", float(i))
 
 def deltapos(i):
     return struct.pack('h', int(i * 32 * 128))
             
 def angle(i):
     return struct.pack('B', int((i/(2*3.14))*255))
+
+def location(x, y, z):
+    return struct.pack(">Q", ((x & 0x3FFFFFF) << 38) | ((y & 0xFFF) << 26) | (z & 0x3FFFFFF))
+
+def perlin(x, z):
+    return pnoise2(x*mapgen_scale,  z*mapgen_scale, 2)

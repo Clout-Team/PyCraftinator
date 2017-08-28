@@ -27,11 +27,12 @@ class Server:
         self._port = port
         self._timeout = timeout
         self._threads = []
-        self.world = None
+        self.world = World("default")
         self.idcounter = 1500
 
     def host(self):
-        with socket.socket(socket.SO_REUSEADDR) as s:
+        with socket.socket() as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((self._host, self._port))
             s.listen(10)
             print("Server started on " + self._host + ":" + str(self._port))
@@ -47,11 +48,12 @@ class Server:
             s.close()
         print("Server stopped!")
     
-    def tick(self):         
+    def tick(self):
+        #heartchunk = image.generate_heart_chunk()
         while 1:
             time.sleep(0.05)
             for player in players:
-                player.tick(image.generate_heart_chunk())
+                player.tick()
                 #if SHOW_TICKS:
                 #    print(player.username)
     
@@ -115,7 +117,6 @@ class Worker:
 
         for arg in args:
             data += pack_data(arg)
-        print(len(data))
         self._conn.send(pack_varint(len(data)) + data)
     
     def handle(self):
@@ -182,6 +183,8 @@ class Worker:
                     print("state 3")
                 if packet_id == 0x04:
                     print("client settings received")
+                    print("locale: %s" % self.read_string())
+                    print("distance: %s" % self.read_byte())
                 elif packet_id == 0x09:
                     channel = self.read_string().decode("utf-8")
                     print("p-channel: %s" % channel)
@@ -217,13 +220,14 @@ class Worker:
     def login(self): 
         pid = self.server.idcounter
         self.server.idcounter += 1
-
-        self.send_data(b'\x02', "4a1d6813-c6aa-40b2-ab97-d3d5aa4561d0", self.username) #login success
+        print(pid)
+        uuid = "4a1d6813-c6aa-40b2-ab97-d3d5aa45" + str(pid)
+        self.send_data(b'\x02', uuid, self.username) #login success
         self._state = 3
         print("login")
         #EID, gamemode, dimension, diff, max players, level type (default), debug info 
         
-        self.player = Player(id, self, 0, 32, 0, 0, 0.0, 0.0)
+        self.player = Player(pid, uuid, self.username, self, 0, 32, 0, 0, 0.0, 0.0)
         self.player.need_to_respawn = True        
         players.append(self.player)
 
